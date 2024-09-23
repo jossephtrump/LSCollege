@@ -1,6 +1,7 @@
 """
-Software de gestión de campus virtual para centros educativos .
+Software de gestión de campus virtual para  nntros educativos .
 """
+
 import os
 import sys
 import tkinter as tk
@@ -19,6 +20,10 @@ import module_fact
 import module_informes
 import module_funciones
 import registro_alumno
+from reportes_facturacion import ReportesFacturacionApp
+from informes_app import InformesApp
+from module_cobranza import CobranzaApp
+
 
 def resource_path(relative_path):
     """ Obtener el camino absoluto al recurso, trabaja para Dev y para PyInstaller """
@@ -125,25 +130,21 @@ class CampusUI:
         """
         registro_alumno.registro_alumno_click(self, self.main_frame, event)
 
-
     def facturacion_click(self, event=None):
         main_frame = self.main_frame
         FacturacionApp(main_frame)
         print("ventana de facturacion abierta")
 
     def cierre_diario(self, event=None):
-        main_frame = self.main_frame
-        FacturacionApp(main_frame)
-        print("ventana de facturacion abierta")
+        ReportesFacturacionApp(self.main_frame)
+        print("Módulo de Reportes de Facturación abierto")
     
     def informe_1(self, event):
-        main_frame = self.main_frame
-        informe_click(main_frame)
-        print("Informes por usuario")
+        InformesApp(self.main_frame)
+        print("Módulo de Informes abierto")
 
     def informe_2(self, event):
-        main_frame = self.main_frame
-        informe_users(main_frame)
+        CobranzaApp(self.main_frame)
         print("Informes de cobranza")
 
 app = CampusUI()

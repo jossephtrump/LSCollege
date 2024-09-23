@@ -1,3 +1,6 @@
+"""
+Este script se encarga de registrar a un alumno en la base de datos.
+"""
 import os
 import tkinter as tk
 from tkinter import ttk, messagebox
