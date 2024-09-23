@@ -44,9 +44,12 @@ class InformesApp:
         cedula_label = tk.Label(self.informes_frame, text="Cédula:", font=font)
         cedula_label.place(relx=0.02, rely=0.02)
         self.cedula_entry = ttk.Entry(self.informes_frame, font=font)
+        self.cedula_entry.focus() # Enfocar el campo de cédula al abrir la pestaña
+        self.cedula_entry.bind("<Return>", lambda event: self.buscar_por_cedula()) # Buscar al presionar Enter
+        self.cedula_entry.bind("<KP_Enter>", lambda event: self.buscar_por_cedula()) # Buscar al presionar Enter en el teclado numérico
         self.cedula_entry.place(relx=0.08, rely=0.02, width=150)
-        buscar_cedula_button = tk.Button(self.informes_frame, text="Buscar", font=font, command=self.buscar_por_cedula)
-        buscar_cedula_button.place(relx=0.22, rely=0.02)
+        buscar_cedula_button = tk.Button(self.informes_frame, text="Buscar", font=("noto sans", 8), command=self.buscar_por_cedula, width=5, bg='lightblue')
+        buscar_cedula_button.place(relx=0.192, rely=0.018)
 
         # Selección de curso
         curso_label = tk.Label(self.informes_frame, text="Curso:", font=font)
@@ -66,8 +69,8 @@ class InformesApp:
         self.genero_combobox.bind("<<ComboboxSelected>>", self.aplicar_filtros)
 
         # Botón para aplicar filtros
-        filtrar_button = tk.Button(self.informes_frame, text="Aplicar Filtros", font=font, command=self.aplicar_filtros)
-        filtrar_button.place(relx=0.5, rely=0.08)
+        filtrar_button = tk.Button(self.informes_frame, text="Aplicar Filtros", font=("noto sans", 8), command=self.aplicar_filtros, bg='lightblue')
+        filtrar_button.place(relx=0.45, rely=0.08)
 
         # Etiqueta para mostrar la cantidad total de alumnos
         self.total_label = tk.Label(self.informes_frame, text="Total de Alumnos: 0", font=font)
