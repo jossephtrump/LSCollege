@@ -93,6 +93,26 @@ def registro_alumno_click(main_app, main_frame, event=None):
                 messagebox.showwarning("Campos obligatorios", f"El campo {campo['label']} es obligatorio.")
                 return False
         return True
+    
+    def verificar_cedula_representante(event=None):
+        """
+        Verifica si la cédula del representante está registrada.
+        Si no está registrada, muestra una advertencia y mantiene el enfoque en el campo.
+        """
+        cedula_rep = campos[1]['var'].get()  # Obtener el valor de la cédula del representante
+        if not cedula_rep.strip():  # Verifica que el campo no esté vacío
+            messagebox.showwarning("Campo vacío", "Por favor, ingrese la cédula del representante.")
+            campos[1]['widget'].focus_set()  # Mantiene el enfoque en el campo
+            return
+
+        result = consulta_cedula_representante(cedula_rep)
+        if not result:
+            messagebox.showwarning(
+                "Representante no encontrado",
+                "La cédula del representante no está registrada en la base de datos. Por favor, verifique e intente de nuevo."
+            )
+            campos[1]['widget'].focus_set()  # Mantiene el enfoque en el campo si no se encuentra la cédula
+
 
     def consulta_cedula_representante(cedula_rep):
         query = "SELECT * FROM representante WHERE cedula = %s"
@@ -101,6 +121,9 @@ def registro_alumno_click(main_app, main_frame, event=None):
         result = cursor.fetchone()
         cursor.close()
         return result
+    
+    # Enlaza la verificación al campo de cédula del representante
+    campos[1]['widget'].bind('<FocusOut>', verificar_cedula_representante)
 
     def buscar_alumno(cedula):
         if not cedula:
@@ -122,7 +145,7 @@ def registro_alumno_click(main_app, main_frame, event=None):
             accion_button.update()
         else:
             messagebox.showwarning("No encontrado", "Alumno no registrado.")
-            clear_entries()
+            
 
     def process_entries():
         if not validar_campos_obligatorios():

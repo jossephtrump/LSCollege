@@ -1,5 +1,5 @@
 """
-Software de gestión de campus virtual para  nntros educativos .
+Software de gestión de campus virtual para  centros educativos .
 """
 
 import os

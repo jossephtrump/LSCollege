@@ -1,5 +1,5 @@
 """
-Este script se encarga de registrar a un alumno en la base de datos.
+Este script se encarga de registrar a un Representante en la base de datos.
 """
 import os
 import tkinter as tk
@@ -72,6 +72,10 @@ def registro_click(main_app, main_frame, event=None):
         global cedulaFact
         cedulaFact = ci_entry.get()
 
+        if not cedulaFact.strip():  # Verifica que la cédula no esté vacía
+            messagebox.showwarning("Campo vacío", "Por favor, ingrese la cédula del representante.")
+            return
+
         result = consulta_cedula(cedulaFact)
         if result:
             # Rellenar los campos con la información obtenida
@@ -92,7 +96,7 @@ def registro_click(main_app, main_frame, event=None):
             print("Datos de la cédula encontrados y cargados en el formulario.")
         else:
             messagebox.showwarning("No encontrado", "El registro con la cédula especificada no fue encontrado.")
-            clear_entries()
+            print("Registro no encontrado en la base de datos")
 
     def update_registro():
         print("Actualiza registro")

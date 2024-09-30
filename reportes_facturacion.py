@@ -7,9 +7,8 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from tkcalendar import DateEntry
 import mysql.connector
-from datetime import datetime, date
+from datetime import date
 from databaseManager import mydb
-
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -38,21 +37,29 @@ class ReportesFacturacionApp:
     def create_widgets(self):
         font = ('noto sans', 10, 'bold')
 
-        # Etiqueta y campo de selección de fecha
-        date_label = tk.Label(self.reportes_frame, text="Seleccionar Fecha:", font=font)
+        # Etiqueta y campo de selección de fecha inicial
+        date_label = tk.Label(self.reportes_frame, text="Fecha Inicio:", font=font)
         date_label.place(relx=0.02, rely=0.02)
 
-        self.date_entry = DateEntry(self.reportes_frame, width=12, background='darkblue',
-                                    foreground='white', borderwidth=2, font=font, date_pattern='yyyy-mm-dd')
-        self.date_entry.place(relx=0.15, rely=0.02)
+        self.start_date_entry = DateEntry(self.reportes_frame, width=12, background='darkblue',
+                                          foreground='white', borderwidth=2, font=font, date_pattern='yyyy-mm-dd')
+        self.start_date_entry.place(relx=0.15, rely=0.02)
+
+        # Etiqueta y campo de selección de fecha final
+        end_date_label = tk.Label(self.reportes_frame, text="Fecha Fin:", font=font)
+        end_date_label.place(relx=0.3, rely=0.02)
+
+        self.end_date_entry = DateEntry(self.reportes_frame, width=12, background='darkblue',
+                                        foreground='white', borderwidth=2, font=font, date_pattern='yyyy-mm-dd')
+        self.end_date_entry.place(relx=0.4, rely=0.02)
 
         # Botón para filtrar
         filter_button = tk.Button(self.reportes_frame, text="Filtrar", font=font, command=self.filter_records)
-        filter_button.place(relx=0.3, rely=0.02)
+        filter_button.place(relx=0.55, rely=0.02)
 
         # Botón para generar PDF
         pdf_button = tk.Button(self.reportes_frame, text="Generar PDF", font=font, command=self.generate_pdf)
-        pdf_button.place(relx=0.4, rely=0.02)
+        pdf_button.place(relx=0.65, rely=0.02)
 
         # Crear el Treeview para mostrar las facturas
         columns = ('cedula_representante', 'nombre_alumno', 'mes', 'tipo_pago', 'monto', 'fecha')
@@ -82,22 +89,22 @@ class ReportesFacturacionApp:
         scrollbar.place(relx=0.98, rely=0.08, relheight=0.85)
 
         # Cargar los registros del día actual
-        self.load_records(date.today())
+        self.load_records(date.today(), date.today())
 
-    def load_records(self, selected_date):
+    def load_records(self, start_date, end_date):
         # Limpiar el Treeview
         for record in self.tree.get_children():
             self.tree.delete(record)
 
-        # Consultar los registros de facturación de la fecha seleccionada
+        # Consultar los registros de facturación del rango de fechas seleccionado
         try:
             cursor = mydb.cursor()
             query = """
             SELECT cedula_representante, nombre_alumno, mes, tipo_pago, monto, fecha
             FROM registro_pagos
-            WHERE DATE(fecha) = %s
+            WHERE DATE(fecha) BETWEEN %s AND %s
             """
-            cursor.execute(query, (selected_date,))
+            cursor.execute(query, (start_date, end_date))
             result = cursor.fetchall()
             cursor.close()
 
@@ -108,13 +115,16 @@ class ReportesFacturacionApp:
             messagebox.showerror("Error", f"Error al consultar la base de datos: {e}", parent=self.parent_frame)
 
     def filter_records(self):
-        selected_date = self.date_entry.get_date()
-        self.load_records(selected_date)
+        start_date = self.start_date_entry.get_date()
+        end_date = self.end_date_entry.get_date()
+        self.load_records(start_date, end_date)
 
     def generate_pdf(self):
-        # Obtener la fecha seleccionada para incluirla en el PDF
-        selected_date = self.date_entry.get_date()
-        fecha_str = selected_date.strftime('%Y-%m-%d')
+        # Obtener las fechas seleccionadas para incluirlas en el PDF
+        start_date = self.start_date_entry.get_date()
+        end_date = self.end_date_entry.get_date()
+        start_date_str = start_date.strftime('%Y-%m-%d')
+        end_date_str = end_date.strftime('%Y-%m-%d')
 
         # Obtener los datos del Treeview
         records = []
@@ -135,7 +145,7 @@ class ReportesFacturacionApp:
             filename = filedialog.asksaveasfilename(
                 defaultextension=".pdf",
                 filetypes=[("PDF files", "*.pdf")],
-                initialfile=f"Reporte_Facturacion_{fecha_str}.pdf",
+                initialfile=f"Reporte_Facturacion_{start_date_str}_to_{end_date_str}.pdf",
                 title="Guardar reporte como"
             )
             if not filename:
@@ -152,7 +162,7 @@ class ReportesFacturacionApp:
                 parent=styles['Title'],
                 alignment=TA_CENTER
             )
-            title = Paragraph(f"Reporte de Facturación - {fecha_str}", title_style)
+            title = Paragraph(f"Reporte de Facturación - {start_date_str} a {end_date_str}", title_style)
             elements.append(title)
             elements.append(Spacer(1, 12))
 

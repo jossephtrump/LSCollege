@@ -1,4 +1,8 @@
+"""
+# Módulo de facturación: este modulo se encarga de la facturación de los alumnos, basado en la cédula del representante.
+"""
 import tkinter as tk
+from tkinter import filedialog
 from tkinter import messagebox, ttk
 from datetime import datetime
 import mysql.connector
@@ -60,7 +64,7 @@ EDO ZULIA RIF J-402317450"""
         self.ci_label.place(relx=0.35, rely=0.05, anchor='center')
         self.ci_entry = ttk.Entry(self.fact_frame, font=font, style='TEntry')
         self.ci_entry.insert(0, 'Ingrese La Cédula del Representante')
-        self.ci_entry.bind('<FocusIn>', lambda event: self.ci_entry.delete(0, 'end'))
+        self.ci_entry.bind('<FocusIn>', lambda event: self.ci_entry.delete(0, 'end') if self.ci_entry.get() == 'Ingrese La Cédula del Representante' else None)
         self.ci_entry.bind("<KP_Enter>", lambda event: self.fill_entries())
         self.ci_entry.bind("<Return>", lambda event: self.fill_entries())
         self.ci_entry.place(relx=0.46, rely=0.05, anchor='center', width=ancho, height=altura)
@@ -206,9 +210,30 @@ EDO ZULIA RIF J-402317450"""
             delete_button = self.fact_frame.nametowidget(self.fact_frame.winfo_children()[-1 - idx])
             delete_button.place_configure(relx=0.75, rely=rely)
 
+    def verificar_pago_inscripcion(self, cedula_estudiante, tipo_pago, mes):
+        """
+        Verifica si ya existe un pago de inscripción registrado para el alumno en el año escolar actual.
+        """
+        if tipo_pago.lower() == "inscripción":
+            try:
+                cursor = mydb.cursor()
+                # Suponiendo que la tabla `registro_pagos` tiene una columna `mes` y `tipo_pago`
+                query = """
+                SELECT COUNT(*) FROM registro_pagos 
+                WHERE cedula_estudiante = %s AND tipo_pago = %s AND YEAR(fecha) = YEAR(CURDATE())
+                """
+                cursor.execute(query, (cedula_estudiante, tipo_pago))
+                result = cursor.fetchone()
+                cursor.close()
+                if result[0] > 0:
+                    return True  # Existe un pago de inscripción registrado
+            except mysql.connector.Error as e:
+                messagebox.showerror("Error", f"Error al verificar el pago de inscripción: {e}", parent=self.root)
+        return False
+
     def on_facturar_button_click(self):
-        cedula = self.ci_entry.get().strip()
-        if not cedula:
+        cedula_representante = self.ci_entry.get().strip()
+        if not cedula_representante:
             messagebox.showwarning("Entrada Inválida", "Por favor, ingrese la cédula del representante.", parent=self.root)
             return
 
@@ -235,11 +260,32 @@ EDO ZULIA RIF J-402317450"""
                 messagebox.showwarning("Monto Inválido", f"El monto debe ser un número positivo en la fila {i+1}.", parent=self.root)
                 return
 
+            # Obtener la cédula del alumno
+            cursor = mydb.cursor()
+            cursor.execute("SELECT cedula FROM alumno WHERE nombre = %s AND cedula_representante = %s", (alumno, cedula_representante))
+            result = cursor.fetchone()
+            cursor.close()
+
+            if result:
+                cedula_estudiante = result[0]
+            else:
+                messagebox.showwarning("No encontrado", f"No se encontró la cédula del alumno '{alumno}'.", parent=self.root)
+                return
+
+            # Verificar si ya existe un pago de inscripción para este alumno
+            if self.verificar_pago_inscripcion(cedula_estudiante, tipo_pago, mes):
+                messagebox.showwarning(
+                    "Pago de Inscripción Existente",
+                    f"El alumno '{alumno}' ya tiene registrado un pago de inscripción para este año escolar.",
+                    parent=self.root
+                )
+                return  # Detener el proceso si ya existe un pago de inscripción
+
             # Obtener el curso del alumno desde la lista previamente llenada
             curso = self.alumnos_cursos.get(alumno, "")
 
             # Registrar la información
-            self.registros.append((fecha_actual, hora_actual, None, alumno, cedula, monto_float, tipo_pago, mes, curso))
+            self.registros.append((fecha_actual, hora_actual, cedula_estudiante, alumno, cedula_representante, monto_float, tipo_pago, mes, curso))
 
         # Confirmación antes de registrar
         if messagebox.askyesno("Confirmar", "¿Desea registrar estos pagos?", parent=self.root):
@@ -318,7 +364,18 @@ EDO ZULIA RIF J-402317450"""
     def generate_pdf(self):
         # Generar un PDF con la información de facturación
         try:
-            filename = "recibo_factura.pdf"
+            # Abrir un cuadro de diálogo para elegir la ubicación y nombre del archivo PDF
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".pdf",
+                filetypes=[("Archivos PDF", "*.pdf")],
+                title="Guardar PDF",
+                initialfile="recibo_factura.pdf",
+                parent=self.root
+            )
+            if not filename:
+                # El usuario canceló el diálogo
+                return
+
             document = SimpleDocTemplate(filename, pagesize=letter)
 
             elements = []
@@ -328,7 +385,7 @@ EDO ZULIA RIF J-402317450"""
             cedula_representante = self.registros[0][4]
             nombre_representante, direccion_representante = self.get_representante_info(cedula_representante)
 
-            # Información de la escuela (default y editable)
+            # Información de la escuela (puedes editar esta información)
             school_info = self.school_info
 
             # Fecha actual
