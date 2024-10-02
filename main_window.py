@@ -13,16 +13,13 @@ from tkcalendar import DateEntry
 from module_informes import *
 from databaseManager import *
 from module_fact import *
-import consulta
-import cobranza
 import module_registro
-import module_fact
-import module_informes
-import module_funciones
 import registro_alumno
 from reportes_facturacion import ReportesFacturacionApp
 from informes_app import InformesApp
 from module_cobranza import CobranzaApp
+
+
 
 
 def resource_path(relative_path):
