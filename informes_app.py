@@ -1,14 +1,14 @@
 """
 Este archivo contiene la clase InformesApp que se encarga de mostrar los informes
 de alumnos y representantes con funcionalidades mejoradas.
+Ahora incluye un botón de 'Limpiar'.
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from tkcalendar import DateEntry
 import mysql.connector
 from databaseManager import mydb
-from tkinter import filedialog
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
@@ -17,6 +17,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph
 from reportlab.lib.units import inch
 from reportlab.lib.pagesizes import landscape, letter
+from datetime import date
 
 class InformesApp:
     def __init__(self, parent_frame):
@@ -50,8 +51,14 @@ class InformesApp:
         self.cedula_entry.bind("<Return>", lambda event: self.buscar_por_cedula())
         self.cedula_entry.bind("<KP_Enter>", lambda event: self.buscar_por_cedula())
         self.cedula_entry.place(relx=0.08, rely=0.02, width=150)
-        buscar_cedula_button = tk.Button(self.informes_frame, text="Buscar", font=("noto sans", 8), command=self.buscar_por_cedula, width=5, bg='lightblue')
+        buscar_cedula_button = tk.Button(self.informes_frame, text="Buscar", font=("noto sans", 8),
+                                         command=self.buscar_por_cedula, width=5, bg='lightblue')
         buscar_cedula_button.place(relx=0.192, rely=0.018)
+
+        # Botón para limpiar
+        limpiar_button = tk.Button(self.informes_frame, text="Limpiar", font=("noto sans", 8),
+                                   command=self.limpiar_filtros, bg='lightblue')
+        limpiar_button.place(relx=0.25, rely=0.018)
 
         # Selección de curso
         curso_label = tk.Label(self.informes_frame, text="Curso:", font=font)
@@ -71,14 +78,15 @@ class InformesApp:
         self.genero_combobox.bind("<<ComboboxSelected>>", self.aplicar_filtros)
 
         # Botón para aplicar filtros
-        filtrar_button = tk.Button(self.informes_frame, text="Aplicar Filtros", font=("noto sans", 8), command=self.aplicar_filtros, bg='lightblue')
+        filtrar_button = tk.Button(self.informes_frame, text="Aplicar Filtros", font=("noto sans", 8),
+                                   command=self.aplicar_filtros, bg='lightblue')
         filtrar_button.place(relx=0.5, rely=0.08)
 
         # Etiqueta para mostrar la cantidad total de alumnos
         self.total_label = tk.Label(self.informes_frame, text="Total de Alumnos: 0", font=font)
         self.total_label.place(relx=0.7, rely=0.08)
 
-        # Crear el Treeview para mostrar los alumnos con columnas adicionales
+        # Crear el Treeview para mostrar los alumnos
         columns = ('cedula', 'nombre', 'curso', 'genero', 'direccion', 'telefono', 'fecha_nacimiento')
         self.tree = ttk.Treeview(self.informes_frame, columns=columns, show='headings')
 
@@ -108,11 +116,11 @@ class InformesApp:
         scrollbar.place(relx=0.98, rely=0.15, relheight=0.7)
 
         # Botón para imprimir
-        print_button = tk.Button(self.informes_frame, text="Imprimir", font=font, command=self.imprimir_datos)
+        print_button = tk.Button(self.informes_frame, text="Imprimir", font=font, command=self.imprimir_datos, bg='indianred1')
         print_button.place(relx=0.02, rely=0.9, width=100)
 
         # Botón para eliminar registros
-        delete_button = tk.Button(self.informes_frame, text="Eliminar", font=font, command=self.eliminar_registro)
+        delete_button = tk.Button(self.informes_frame, text="Eliminar", font=font, command=self.eliminar_registro, bg='lightgoldenrod1')
         delete_button.place(relx=0.14, rely=0.9, width=100)
 
         # Asignar evento de doble clic para editar
@@ -148,7 +156,7 @@ class InformesApp:
                 info = f"Cédula: {result[0]}\nNombre: {result[1]}\nDirección: {result[2]}"
                 messagebox.showinfo("Información del Representante", info, parent=self.parent_frame)
 
-                # **Nuevo código para obtener alumnos asociados al representante**
+                # Obtener alumnos asociados al representante
                 query_alumnos = """
                 SELECT cedula, nombre, curso, genero, direccion, telefono, fecha_nacimiento
                 FROM alumno WHERE cedula_representante = %s
@@ -236,6 +244,14 @@ class InformesApp:
         for record in self.tree.get_children():
             self.tree.delete(record)
 
+    def limpiar_filtros(self):
+        # Limpiar los campos de entrada y filtros
+        self.cedula_entry.delete(0, tk.END)
+        self.curso_combobox.set('')
+        self.genero_combobox.set('Todos')
+        self.limpiar_treeview()
+        self.total_label.config(text="Total de Alumnos: 0")
+
     def sort_column_data(self, col):
         # Ordenar los datos de acuerdo a la columna seleccionada
         if self.sort_column == col:
@@ -320,6 +336,9 @@ class InformesApp:
                     self.tree.delete(item_id)
 
                 messagebox.showinfo("Éxito", "Registros eliminados correctamente.", parent=self.parent_frame)
+                # Actualizar el total de alumnos
+                total_alumnos = len(self.tree.get_children())
+                self.total_label.config(text=f"Total de Alumnos: {total_alumnos}")
             except mysql.connector.Error as e:
                 messagebox.showerror("Error", f"Error al eliminar de la base de datos: {e}", parent=self.parent_frame)
 

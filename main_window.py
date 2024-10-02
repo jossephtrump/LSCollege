@@ -10,9 +10,9 @@ from tkinter import ttk
 from ttkthemes import ThemedTk
 from PIL import Image, ImageTk, ImageOps, ImageDraw
 from tkcalendar import DateEntry
-from module_informes import *
 from databaseManager import *
-from module_fact import *
+import module_fact  # Importa el módulo sin traer todos los nombres al espacio global
+from module_fact import FacturacionApp
 import module_registro
 import registro_alumno
 from reportes_facturacion import ReportesFacturacionApp

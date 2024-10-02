@@ -1,6 +1,7 @@
 """
-Este archivo contiene la clase ReportesFacturacionApp que se encarga de mostrar los reportes de facturación
-y generar un PDF con los resultados filtrados, incluyendo el total de los montos.
+Este archivo contiene la clase ReportesFacturacionApp que se encarga de mostrar los reportes de facturación,
+permitiendo generar un PDF con los resultados filtrados, incluyendo el total de los montos, y anular facturas en caso de error.
+Ahora incluye un filtro para mostrar facturas anuladas.
 """
 
 import tkinter as tk
@@ -13,7 +14,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 
 class ReportesFacturacionApp:
     def __init__(self, parent_frame):
@@ -43,43 +44,66 @@ class ReportesFacturacionApp:
 
         self.start_date_entry = DateEntry(self.reportes_frame, width=12, background='darkblue',
                                           foreground='white', borderwidth=2, font=font, date_pattern='yyyy-mm-dd')
-        self.start_date_entry.place(relx=0.15, rely=0.02)
+        self.start_date_entry.place(relx=0.12, rely=0.02)
 
         # Etiqueta y campo de selección de fecha final
         end_date_label = tk.Label(self.reportes_frame, text="Fecha Fin:", font=font)
-        end_date_label.place(relx=0.3, rely=0.02)
+        end_date_label.place(relx=0.25, rely=0.02)
 
         self.end_date_entry = DateEntry(self.reportes_frame, width=12, background='darkblue',
                                         foreground='white', borderwidth=2, font=font, date_pattern='yyyy-mm-dd')
-        self.end_date_entry.place(relx=0.4, rely=0.02)
+        self.end_date_entry.place(relx=0.35, rely=0.02)
+
+        # Filtro de estado de factura (Activa, Anulada, Todas)
+        status_label = tk.Label(self.reportes_frame, text="Estado:", font=font)
+        status_label.place(relx=0.48, rely=0.02)
+
+        self.status_var = tk.StringVar()
+        self.status_var.set("Activas")  # Valor predeterminado
+
+        status_options = ["Activas", "Anuladas", "Todas"]
+        self.status_menu = ttk.OptionMenu(self.reportes_frame, self.status_var, "Activas", *status_options)
+        self.status_menu.place(relx=0.55, rely=0.02)
 
         # Botón para filtrar
-        filter_button = tk.Button(self.reportes_frame, text="Filtrar", font=font, command=self.filter_records)
-        filter_button.place(relx=0.55, rely=0.02)
+        filter_button = tk.Button(self.reportes_frame, text="Filtrar", font=font, command=self.filter_records, bg='DodgerBlue2', fg='white')
+        filter_button.place(relx=0.68, rely=0.02)
 
         # Botón para generar PDF
-        pdf_button = tk.Button(self.reportes_frame, text="Generar PDF", font=font, command=self.generate_pdf)
-        pdf_button.place(relx=0.65, rely=0.02)
+        pdf_button = tk.Button(self.reportes_frame, text="Generar PDF", font=font, command=self.generate_pdf, bg='IndianRed3', fg='white')
+        pdf_button.place(relx=0.76, rely=0.02)
+
+        # Botón para limpiar
+        clear_button = tk.Button(self.reportes_frame, text="Limpiar", font=font, command=self.clear_records, bg='orange2')
+        clear_button.place(relx=0.86, rely=0.02)
+
+        # Botón para anular factura
+        anular_button = tk.Button(self.reportes_frame, text="Anular", font=font, command=self.anular_factura, bg='pink4', fg='white')
+        anular_button.place(relx=0.93, rely=0.02)
 
         # Crear el Treeview para mostrar las facturas
-        columns = ('cedula_representante', 'nombre_alumno', 'mes', 'tipo_pago', 'monto', 'fecha')
+        columns = ('id_factura', 'cedula_representante', 'nombre_alumno', 'mes', 'tipo_pago', 'monto', 'fecha', 'estado')
         self.tree = ttk.Treeview(self.reportes_frame, columns=columns, show='headings')
 
         # Definir encabezados
+        self.tree.heading('id_factura', text='ID Factura')
         self.tree.heading('cedula_representante', text='Cédula Representante')
         self.tree.heading('nombre_alumno', text='Nombre Alumno')
         self.tree.heading('mes', text='Mes')
         self.tree.heading('tipo_pago', text='Tipo de Pago')
         self.tree.heading('monto', text='Monto')
         self.tree.heading('fecha', text='Fecha')
+        self.tree.heading('estado', text='Estado')
 
         # Definir anchos de columnas
+        self.tree.column('id_factura', width=80)
         self.tree.column('cedula_representante', width=120)
         self.tree.column('nombre_alumno', width=120)
         self.tree.column('mes', width=80)
         self.tree.column('tipo_pago', width=100)
         self.tree.column('monto', width=80)
         self.tree.column('fecha', width=100)
+        self.tree.column('estado', width=80)
 
         self.tree.place(relx=0.02, rely=0.08, relwidth=0.96, relheight=0.85)
 
@@ -96,13 +120,26 @@ class ReportesFacturacionApp:
         for record in self.tree.get_children():
             self.tree.delete(record)
 
+        # Obtener el estado seleccionado
+        estado = self.status_var.get()
+
+        # Construir la cláusula WHERE para el estado
+        estado_clause = ""
+        if estado == "Activas":
+            estado_clause = "AND anulado = 0"
+        elif estado == "Anuladas":
+            estado_clause = "AND anulado = 1"
+        elif estado == "Todas":
+            estado_clause = ""  # No se agrega ninguna condición
+
         # Consultar los registros de facturación del rango de fechas seleccionado
         try:
             cursor = mydb.cursor()
-            query = """
-            SELECT cedula_representante, nombre_alumno, mes, tipo_pago, monto, fecha
+            query = f"""
+            SELECT id_factura, cedula_representante, nombre_alumno, mes, tipo_pago, monto, fecha, anulado
             FROM registro_pagos
             WHERE DATE(fecha) BETWEEN %s AND %s
+            {estado_clause}
             """
             cursor.execute(query, (start_date, end_date))
             result = cursor.fetchall()
@@ -110,7 +147,9 @@ class ReportesFacturacionApp:
 
             # Insertar los registros en el Treeview
             for row in result:
-                self.tree.insert('', 'end', values=row)
+                id_factura, cedula_representante, nombre_alumno, mes, tipo_pago, monto, fecha, anulado = row
+                estado_factura = "Anulada" if anulado else "Activa"
+                self.tree.insert('', 'end', values=(id_factura, cedula_representante, nombre_alumno, mes, tipo_pago, monto, fecha, estado_factura))
         except mysql.connector.Error as e:
             messagebox.showerror("Error", f"Error al consultar la base de datos: {e}", parent=self.parent_frame)
 
@@ -131,8 +170,8 @@ class ReportesFacturacionApp:
         for child in self.tree.get_children():
             record = self.tree.item(child)['values']
             # Formatear el monto y la fecha
-            record[4] = f"${float(record[4]):,.2f}"
-            record[5] = str(record[5])
+            record[5] = f"${float(record[5]):,.2f}"  # Monto
+            record[6] = str(record[6])  # Fecha
             records.append(record)
 
         if not records:
@@ -167,13 +206,13 @@ class ReportesFacturacionApp:
             elements.append(Spacer(1, 12))
 
             # Encabezados de la tabla
-            encabezados = ['Cédula Representante', 'Nombre Alumno', 'Mes', 'Tipo de Pago', 'Monto', 'Fecha']
+            encabezados = ['ID Factura', 'Cédula Representante', 'Nombre Alumno', 'Mes', 'Tipo de Pago', 'Monto', 'Fecha', 'Estado']
 
             # Datos de la tabla
             data = [encabezados] + records
 
             # Crear la tabla
-            table = Table(data, colWidths=[80, 100, 60, 80, 60, 80])
+            table = Table(data, colWidths=[60, 80, 100, 60, 80, 60, 80, 60])
 
             # Estilo de la tabla
             estilo_tabla = TableStyle([
@@ -188,8 +227,11 @@ class ReportesFacturacionApp:
             table.setStyle(estilo_tabla)
             elements.append(table)
 
-            # Calcular el total de los montos
-            total_monto = sum(float(record[4].replace('$', '').replace(',', '')) for record in records)
+            # Calcular el total de los montos (solo facturas activas)
+            total_monto = sum(
+                float(record[5].replace('$', '').replace(',', ''))
+                for record in records if record[7] == "Activa"
+            )
 
             # Añadir un espacio antes del total
             elements.append(Spacer(1, 12))
@@ -202,7 +244,7 @@ class ReportesFacturacionApp:
                 fontSize=12,
                 leading=14,
             )
-            total_paragraph = Paragraph(f"Total Monto: ${total_monto:,.2f}", total_style)
+            total_paragraph = Paragraph(f"Total Monto (Facturas Activas): ${total_monto:,.2f}", total_style)
             elements.append(total_paragraph)
 
             # Construir el PDF
@@ -211,6 +253,50 @@ class ReportesFacturacionApp:
             messagebox.showinfo("PDF Generado", f"El reporte ha sido generado como '{filename}'.", parent=self.parent_frame)
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo generar el PDF: {e}", parent=self.parent_frame)
+
+    def clear_records(self):
+        # Restablecer los campos de fecha al día actual
+        today = date.today()
+        self.start_date_entry.set_date(today)
+        self.end_date_entry.set_date(today)
+        # Restablecer el filtro de estado
+        self.status_var.set("Activas")
+        # Limpiar el Treeview
+        for record in self.tree.get_children():
+            self.tree.delete(record)
+
+    def anular_factura(self):
+        selected_item = self.tree.focus()
+        if not selected_item:
+            messagebox.showwarning("Advertencia", "Seleccione una factura para anular.", parent=self.parent_frame)
+            return
+
+        # Obtener los datos de la factura seleccionada
+        factura = self.tree.item(selected_item)['values']
+        id_factura = factura[0]
+        estado_actual = factura[7]
+
+        if estado_actual == "Anulada":
+            messagebox.showinfo("Información", f"La factura ID {id_factura} ya está anulada.", parent=self.parent_frame)
+            return
+
+        # Confirmar anulación
+        respuesta = messagebox.askyesno("Confirmar anulación", f"¿Está seguro de que desea anular la factura ID {id_factura}?", parent=self.parent_frame)
+        if respuesta:
+            try:
+                cursor = mydb.cursor()
+                # Actualizar el estado de la factura a 'anulado'
+                query = "UPDATE registro_pagos SET anulado = 1 WHERE id_factura = %s"
+                cursor.execute(query, (id_factura,))
+                mydb.commit()
+                cursor.close()
+
+                messagebox.showinfo("Factura anulada", f"La factura ID {id_factura} ha sido anulada.", parent=self.parent_frame)
+
+                # Actualizar la vista
+                self.filter_records()
+            except mysql.connector.Error as e:
+                messagebox.showerror("Error", f"No se pudo anular la factura: {e}", parent=self.parent_frame)
 
     def close_tab(self):
         self.notebook.forget(self.reportes_frame)
