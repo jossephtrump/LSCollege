@@ -136,9 +136,9 @@ class ReportesFacturacionApp:
         try:
             cursor = mydb.cursor()
             query = f"""
-            SELECT id_factura, cedula_representante, nombre_alumno, mes, tipo_pago, monto, fecha, anulado
+            SELECT id_factura, cedula_representante, nombre_alumno, mes, tipo_pago, monto, fecha_pago, anulado
             FROM registro_pagos
-            WHERE DATE(fecha) BETWEEN %s AND %s
+            WHERE DATE(fecha_pago) BETWEEN %s AND %s
             {estado_clause}
             """
             cursor.execute(query, (start_date, end_date))
