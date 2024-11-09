@@ -9,16 +9,93 @@ from tkinter import ttk, messagebox, filedialog
 from tkcalendar import DateEntry
 import mysql.connector
 from datetime import date
-from databaseManager import mydb
+import xlsxwriter  # Si necesitas exportar a Excel
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
+import locale
+import logging
+
+# Configurar logging
+logging.basicConfig(filename='reportes_facturacion.log', level=logging.ERROR,
+                    format='%(asctime)s %(levelname)s:%(message)s')
+
+# Establecer la configuración regional a español
+try:
+    locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')  # Para sistemas Unix/Linux
+except:
+    locale.setlocale(locale.LC_TIME, 'Spanish_Spain')  # Para sistemas Windows
+
+
+class DataManager:
+    """Clase para manejar las operaciones de base de datos."""
+
+    def obtener_conexion(self):
+        """Crea una nueva conexión a la base de datos."""
+        try:
+            mydb = mysql.connector.connect(
+                host="localhost",
+                user="root",
+                password="",
+                database="colegio"  # Cambia esto al nombre de tu base de datos
+            )
+            return mydb
+        except mysql.connector.Error as e:
+            logging.error(f"Error al conectar a la base de datos: {e}")
+            raise
+
+    def obtener_facturas(self, start_date, end_date, estado):
+        """Obtiene las facturas según las fechas y el estado proporcionado."""
+        try:
+            mydb = self.obtener_conexion()
+            cursor = mydb.cursor()
+
+            # Construir la cláusula WHERE para el estado
+            estado_clause = ""
+            if estado == "Activas":
+                estado_clause = "AND anulado = 0"
+            elif estado == "Anuladas":
+                estado_clause = "AND anulado = 1"
+            elif estado == "Todas":
+                estado_clause = ""  # No se agrega ninguna condición
+
+            query = f"""
+            SELECT id_factura, cedula_representante, nombre_alumno, mes, tipo_pago, monto, fecha_pago, anulado
+            FROM registro_pagos
+            WHERE DATE(fecha_pago) BETWEEN %s AND %s
+            {estado_clause}
+            """
+            cursor.execute(query, (start_date, end_date))
+            result = cursor.fetchall()
+            cursor.close()
+            mydb.close()
+            return result
+        except mysql.connector.Error as e:
+            logging.error(f"Error al obtener facturas: {e}")
+            raise
+
+    def anular_factura(self, id_factura):
+        """Anula una factura dada su ID."""
+        try:
+            mydb = self.obtener_conexion()
+            cursor = mydb.cursor()
+            # Actualizar el estado de la factura a 'anulado'
+            query = "UPDATE registro_pagos SET anulado = 1 WHERE id_factura = %s"
+            cursor.execute(query, (id_factura,))
+            mydb.commit()
+            cursor.close()
+            mydb.close()
+        except mysql.connector.Error as e:
+            logging.error(f"Error al anular la factura: {e}")
+            raise
+
 
 class ReportesFacturacionApp:
     def __init__(self, parent_frame):
         self.parent_frame = parent_frame
+        self.data_manager = DataManager()
         self.initialize_ui()
 
     def initialize_ui(self):
@@ -123,35 +200,17 @@ class ReportesFacturacionApp:
         # Obtener el estado seleccionado
         estado = self.status_var.get()
 
-        # Construir la cláusula WHERE para el estado
-        estado_clause = ""
-        if estado == "Activas":
-            estado_clause = "AND anulado = 0"
-        elif estado == "Anuladas":
-            estado_clause = "AND anulado = 1"
-        elif estado == "Todas":
-            estado_clause = ""  # No se agrega ninguna condición
-
-        # Consultar los registros de facturación del rango de fechas seleccionado
         try:
-            cursor = mydb.cursor()
-            query = f"""
-            SELECT id_factura, cedula_representante, nombre_alumno, mes, tipo_pago, monto, fecha_pago, anulado
-            FROM registro_pagos
-            WHERE DATE(fecha_pago) BETWEEN %s AND %s
-            {estado_clause}
-            """
-            cursor.execute(query, (start_date, end_date))
-            result = cursor.fetchall()
-            cursor.close()
+            # Obtener las facturas desde el DataManager
+            result = self.data_manager.obtener_facturas(start_date, end_date, estado)
 
             # Insertar los registros en el Treeview
             for row in result:
                 id_factura, cedula_representante, nombre_alumno, mes, tipo_pago, monto, fecha, anulado = row
                 estado_factura = "Anulada" if anulado else "Activa"
                 self.tree.insert('', 'end', values=(id_factura, cedula_representante, nombre_alumno, mes, tipo_pago, monto, fecha, estado_factura))
-        except mysql.connector.Error as e:
-            messagebox.showerror("Error", f"Error al consultar la base de datos: {e}", parent=self.parent_frame)
+        except Exception as e:
+            messagebox.showerror("Error", f"Error al cargar los registros: {e}", parent=self.parent_frame)
 
     def filter_records(self):
         start_date = self.start_date_entry.get_date()
@@ -170,6 +229,7 @@ class ReportesFacturacionApp:
         for child in self.tree.get_children():
             record = self.tree.item(child)['values']
             # Formatear el monto y la fecha
+            record = list(record)  # Convertir a lista para modificar
             record[5] = f"${float(record[5]):,.2f}"  # Monto
             record[6] = str(record[6])  # Fecha
             records.append(record)
@@ -284,18 +344,14 @@ class ReportesFacturacionApp:
         respuesta = messagebox.askyesno("Confirmar anulación", f"¿Está seguro de que desea anular la factura ID {id_factura}?", parent=self.parent_frame)
         if respuesta:
             try:
-                cursor = mydb.cursor()
-                # Actualizar el estado de la factura a 'anulado'
-                query = "UPDATE registro_pagos SET anulado = 1 WHERE id_factura = %s"
-                cursor.execute(query, (id_factura,))
-                mydb.commit()
-                cursor.close()
+                # Anular la factura utilizando el DataManager
+                self.data_manager.anular_factura(id_factura)
 
                 messagebox.showinfo("Factura anulada", f"La factura ID {id_factura} ha sido anulada.", parent=self.parent_frame)
 
                 # Actualizar la vista
                 self.filter_records()
-            except mysql.connector.Error as e:
+            except Exception as e:
                 messagebox.showerror("Error", f"No se pudo anular la factura: {e}", parent=self.parent_frame)
 
     def close_tab(self):

@@ -1,205 +1,235 @@
 """
 Este archivo contiene la clase CobranzaApp que se encarga de gestionar los pagos
 de estudiantes en una institución educativa. Incluye funcionalidades para buscar pagos,
-exportar datos y mejorar la experiencia del usuario.
+filtrar morosos y mejorar la experiencia del usuario.
 """
 
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from tkcalendar import DateEntry
-from databaseManager import mydb
+import mysql.connector
 import xlsxwriter
 import logging
 import datetime
+import locale
 
 # Configurar logging
-logging.basicConfig(filename='app.log', level=logging.ERROR, format='%(asctime)s %(levelname)s:%(message)s')
+logging.basicConfig(filename='app.log', level=logging.ERROR,
+                    format='%(asctime)s %(levelname)s:%(message)s')
+
+# Establecer la configuración regional a español
+try:
+    locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')  # Para sistemas Unix/Linux
+except:
+    locale.setlocale(locale.LC_TIME, 'Spanish_Spain')  # Para sistemas Windows
 
 
 class DataManager:
     """Clase para manejar las operaciones de base de datos."""
 
-    def __init__(self):
-        self.mydb = mydb
-
-    def obtener_pagos_por_cedula(self, cedula):
+    def obtener_conexion(self):
+        """Crea una nueva conexión a la base de datos."""
         try:
-            cursor = self.mydb.cursor()
+            mydb = mysql.connector.connect(
+                host="localhost",
+                user="root",
+                password="",
+                database="colegio"  # Cambia esto al nombre de tu base de datos
+            )
+            return mydb
+        except mysql.connector.Error as e:
+            logging.error(f"Error al conectar a la base de datos: {e}")
+            raise
+
+    def obtener_pagos(self, cedula=None, cedula_representante=None, curso=None, mes=None, fecha_inicio=None, fecha_fin=None):
+        """Obtiene los pagos realizados según los filtros seleccionados."""
+        try:
+            mydb = self.obtener_conexion()
+            cursor = mydb.cursor()
+
             query = """
-            SELECT rp.cedula_estudiante, rp.nombre_alumno, rp.curso, rp.mes, rp.monto, rp.tipo_pago, rp.fecha_pago
+            SELECT rp.cedula_estudiante, rp.nombre_alumno, rp.curso, rp.mes, rp.monto,
+                   rp.tipo_pago, a.cedula_representante
             FROM registro_pagos rp
-            WHERE rp.cedula_estudiante = %s
+            JOIN alumno a ON rp.cedula_estudiante = a.cedula
             """
-            cursor.execute(query, (cedula,))
-            result = cursor.fetchall()
-            cursor.close()
-            return result
-        except Exception as e:
-            logging.error(f"Error al consultar pagos por cédula: {e}")
-            raise
 
-    def obtener_pagos_por_representante(self, cedulas_alumnos):
-        try:
-            cursor = self.mydb.cursor()
-            placeholders = ','.join(['%s'] * len(cedulas_alumnos))
-            query = f"""
-            SELECT rp.cedula_estudiante, rp.nombre_alumno, rp.curso, rp.mes, rp.monto, rp.tipo_pago, rp.fecha_pago
-            FROM registro_pagos rp
-            WHERE rp.cedula_estudiante IN ({placeholders})
-            """
-            cursor.execute(query, cedulas_alumnos)
-            result = cursor.fetchall()
-            cursor.close()
-            return result
-        except Exception as e:
-            logging.error(f"Error al consultar pagos por representante: {e}")
-            raise
+            condiciones = []
+            parametros = []
 
-    def obtener_pagos_por_curso(self, curso):
-        try:
-            cursor = self.mydb.cursor()
-            if curso == "Todos":
-                query = """
-                SELECT rp.cedula_estudiante, rp.nombre_alumno, rp.curso, rp.mes, rp.monto, rp.tipo_pago, rp.fecha_pago
-                FROM registro_pagos rp
-                """
-                cursor.execute(query)
-            else:
-                query = """
-                SELECT rp.cedula_estudiante, rp.nombre_alumno, rp.curso, rp.mes, rp.monto, rp.tipo_pago, rp.fecha_pago
-                FROM registro_pagos rp
-                WHERE rp.curso = %s
-                """
-                cursor.execute(query, (curso,))
-            result = cursor.fetchall()
-            cursor.close()
-            return result
-        except Exception as e:
-            logging.error(f"Error al consultar pagos por curso: {e}")
-            raise
+            if cedula:
+                condiciones.append("rp.cedula_estudiante = %s")
+                parametros.append(cedula)
 
-    def obtener_pagos_por_mes(self, mes):
-        try:
-            cursor = self.mydb.cursor()
-            if mes == "Todos":
-                query = """
-                SELECT rp.cedula_estudiante, rp.nombre_alumno, rp.curso, rp.mes, rp.monto, rp.tipo_pago, rp.fecha_pago
-                FROM registro_pagos rp
-                """
-                cursor.execute(query)
-            else:
-                query = """
-                SELECT rp.cedula_estudiante, rp.nombre_alumno, rp.curso, rp.mes, rp.monto, rp.tipo_pago, rp.fecha_pago
-                FROM registro_pagos rp
-                WHERE rp.mes = %s
-                """
-                cursor.execute(query, (mes,))
-            result = cursor.fetchall()
-            cursor.close()
-            return result
-        except Exception as e:
-            logging.error(f"Error al consultar pagos por mes: {e}")
-            raise
+            if cedula_representante:
+                condiciones.append("a.cedula_representante = %s")
+                parametros.append(cedula_representante)
 
-    def obtener_pagos_por_rango_fecha(self, fecha_inicio, fecha_fin):
-        try:
-            cursor = self.mydb.cursor()
-            query = """
-            SELECT rp.cedula_estudiante, rp.nombre_alumno, rp.curso, rp.mes, rp.monto, rp.tipo_pago, rp.fecha_pago
-            FROM registro_pagos rp
-            WHERE rp.fecha_pago BETWEEN %s AND %s
-            """
-            cursor.execute(query, (fecha_inicio.strftime('%Y-%m-%d'), fecha_fin.strftime('%Y-%m-%d')))
+            if curso and curso != "Todos":
+                condiciones.append("rp.curso = %s")
+                parametros.append(curso)
+
+            if mes and mes != "Todos":
+                condiciones.append("rp.mes = %s")
+                parametros.append(mes)
+
+            if fecha_inicio and fecha_fin:
+                condiciones.append("rp.fecha_pago BETWEEN %s AND %s")
+                parametros.extend([fecha_inicio.strftime('%Y-%m-%d'), fecha_fin.strftime('%Y-%m-%d')])
+
+            if condiciones:
+                query += " WHERE " + " AND ".join(condiciones)
+
+            cursor.execute(query, parametros)
             result = cursor.fetchall()
             cursor.close()
+            mydb.close()
             return result
         except Exception as e:
-            logging.error(f"Error al consultar pagos por rango de fechas: {e}")
+            logging.error(f"Error al consultar pagos: {e}")
             raise
 
     def obtener_cursos(self):
+        """Obtiene una lista de todos los cursos disponibles."""
         try:
-            cursor = self.mydb.cursor()
+            mydb = self.obtener_conexion()
+            cursor = mydb.cursor()
             query = "SELECT DISTINCT curso FROM alumno ORDER BY curso"
             cursor.execute(query)
             result = cursor.fetchall()
-            cursor.close()
             cursos = [row[0] for row in result]
+            cursor.close()
+            mydb.close()
             return cursos
         except Exception as e:
             logging.error(f"Error al consultar los cursos: {e}")
             raise
 
-    def obtener_alumnos_por_representante(self, cedula_representante):
-        try:
-            cursor = self.mydb.cursor()
-            query_alumnos = "SELECT cedula FROM alumno WHERE cedula_representante = %s"
-            cursor.execute(query_alumnos, (cedula_representante,))
-            alumnos = cursor.fetchall()
-            cursor.close()
-            cedulas_alumnos = [alumno[0] for alumno in alumnos]
-            return cedulas_alumnos
-        except Exception as e:
-            logging.error(f"Error al obtener alumnos por representante: {e}")
-            raise
+    def obtener_meses(self, fecha_inicio=None, fecha_fin=None):
+        """Obtiene una lista de meses en español entre dos fechas."""
+        meses = []
+        if fecha_inicio and fecha_fin:
+            start_month = fecha_inicio.month
+            start_year = fecha_inicio.year
+            end_month = fecha_fin.month
+            end_year = fecha_fin.year
 
-    def obtener_morosos(self, curso=None, mes=None, fecha_inicio=None, fecha_fin=None):
-        try:
-            cursor = self.mydb.cursor()
+            # Crear un rango de meses entre las fechas
+            current_year = start_year
+            current_month = start_month
+            while (current_year < end_year) or (current_year == end_year and current_month <= end_month):
+                meses.append((current_year, current_month))
+                if current_month == 12:
+                    current_month = 1
+                    current_year += 1
+                else:
+                    current_month += 1
+        else:
+            # Si no se proporcionan fechas, asumimos desde agosto hasta el mes actual
+            today = datetime.date.today()
+            current_month = today.month
+            current_year = today.year
 
-            # Construir la consulta para obtener alumnos
-            query_alumnos = "SELECT cedula, nombre, curso FROM alumno"
-            condiciones_alumnos = []
-            parametros_alumnos = []
-
-            if curso:
-                condiciones_alumnos.append("curso = %s")
-                parametros_alumnos.append(curso)
-
-            if condiciones_alumnos:
-                query_alumnos += " WHERE " + " AND ".join(condiciones_alumnos)
-
-            cursor.execute(query_alumnos, parametros_alumnos)
-            alumnos = cursor.fetchall()
-            alumnos_dict = {alumno[0]: alumno for alumno in alumnos}
-
-            # Si no hay alumnos, retornar lista vacía
-            if not alumnos_dict:
-                cursor.close()
-                return []
-
-            # Construir la consulta para obtener pagos
-            query_pagos = "SELECT DISTINCT cedula_estudiante FROM registro_pagos"
-            condiciones_pagos = []
-            parametros_pagos = []
-
-            if fecha_inicio and fecha_fin:
-                condiciones_pagos.append("fecha_pago BETWEEN %s AND %s")
-                parametros_pagos.extend([fecha_inicio.strftime('%Y-%m-%d'), fecha_fin.strftime('%Y-%m-%d')])
-            elif mes:
-                condiciones_pagos.append("mes = %s")
-                parametros_pagos.append(mes)
+            if current_month >= 8:
+                start_month = 8
+                start_year = current_year
             else:
-                # Si no se especifica mes ni fechas, usar el mes actual
-                mes_actual = datetime.datetime.now().strftime('%B')
-                condiciones_pagos.append("mes = %s")
-                parametros_pagos.append(mes_actual)
+                start_month = 8
+                start_year = current_year - 1
 
-            if curso:
-                condiciones_pagos.append("curso = %s")
-                parametros_pagos.append(curso)
+            while (start_year < current_year) or (start_year == current_year and start_month <= current_month):
+                meses.append((start_year, start_month))
+                if start_month == 12:
+                    start_month = 1
+                    start_year += 1
+                else:
+                    start_month += 1
 
-            if condiciones_pagos:
-                query_pagos += " WHERE " + " AND ".join(condiciones_pagos)
+        # Convertir los meses a nombres de meses en español
+        meses_nombres = []
+        for year, month in meses:
+            nombre_mes = datetime.date(year, month, 1).strftime('%B').capitalize()
+            meses_nombres.append(nombre_mes)
 
-            cursor.execute(query_pagos, parametros_pagos)
-            pagos_realizados = cursor.fetchall()
-            cedulas_pagadas = {pago[0] for pago in pagos_realizados}
+        return meses_nombres
 
-            # Filtrar alumnos que no están en la lista de pagos realizados
-            morosos = [alumnos_dict[cedula] for cedula in alumnos_dict if cedula not in cedulas_pagadas]
+    def obtener_morosos(self, cedula=None, cedula_representante=None, curso=None, mes=None, fecha_inicio=None, fecha_fin=None):
+        """Obtiene los alumnos morosos según los filtros seleccionados."""
+        try:
+            mydb = self.obtener_conexion()
+            cursor = mydb.cursor()
 
+            # Obtener los meses que se deben considerar
+            if mes and mes != "Todos":
+                meses_faltantes = [mes]
+            else:
+                meses_faltantes = self.obtener_meses(fecha_inicio, fecha_fin)
+
+            # Convertir los nombres de meses a título para coincidir con el formato de los datos
+            meses_faltantes = [m.capitalize() for m in meses_faltantes]
+
+            # Construir la consulta base para obtener alumnos
+            query = """
+            SELECT a.cedula, a.nombre, a.curso, a.cedula_representante
+            FROM alumno a
+            """
+            condiciones = []
+            parametros = []
+
+            if cedula:
+                condiciones.append("a.cedula = %s")
+                parametros.append(cedula)
+
+            if cedula_representante:
+                condiciones.append("a.cedula_representante = %s")
+                parametros.append(cedula_representante)
+
+            if curso and curso != "Todos":
+                condiciones.append("a.curso = %s")
+                parametros.append(curso)
+
+            if condiciones:
+                query += " WHERE " + " AND ".join(condiciones)
+
+            cursor.execute(query, parametros)
+            alumnos = cursor.fetchall()
+
+            morosos = []
+
+            for alumno in alumnos:
+                cedula_alumno = alumno[0]
+                nombre_alumno = alumno[1]
+                curso_alumno = alumno[2]
+                cedula_rep = alumno[3]
+
+                # Verificar los pagos realizados por el alumno
+                if meses_faltantes:
+                    placeholders = ','.join(['%s'] * len(meses_faltantes))
+                    query_pagos = f"""
+                    SELECT DISTINCT mes FROM registro_pagos
+                    WHERE cedula_estudiante = %s AND mes IN ({placeholders})
+                    """
+                    parametros_pagos = [cedula_alumno] + meses_faltantes
+
+                    cursor.execute(query_pagos, parametros_pagos)
+                    pagos_realizados = cursor.fetchall()
+                    meses_pagados = {pago[0] for pago in pagos_realizados}
+
+                    # Obtener los meses que el alumno debe
+                    meses_pendientes = set(meses_faltantes) - meses_pagados
+
+                    for mes_pendiente in meses_pendientes:
+                        morosos.append((
+                            cedula_alumno,
+                            nombre_alumno,
+                            curso_alumno,
+                            mes_pendiente,
+                            '50$',  # Monto predeterminado
+                            '',     # Tipo de pago en blanco
+                            cedula_rep
+                        ))
             cursor.close()
+            mydb.close()
             return morosos
         except Exception as e:
             logging.error(f"Error al obtener morosos: {e}")
@@ -243,43 +273,26 @@ class CobranzaApp:
 
     def create_widgets(self):
         """Crea los widgets de la interfaz."""
-        font = ('noto sans', 10)
-        font_2 = ("noto sans", 8)
-
         # Campo para la búsqueda por cédula de alumno
-        cedula_label = ttk.Label(self.cobranza_frame, text="Cédula Alumno:")
-        cedula_label.place(relx=0.02, rely=0.02)
+        ttk.Label(self.cobranza_frame, text="Cédula Alumno:").place(relx=0.02, rely=0.02)
         self.cedula_entry = ttk.Entry(self.cobranza_frame)
         self.cedula_entry.place(relx=0.15, rely=0.02, width=150)
-        self.cedula_entry.bind("<Return>", lambda event: self.buscar_por_cedula())
-        self.cedula_entry.bind("<KP_Enter>", lambda event: self.buscar_por_cedula())
-        buscar_cedula_button = ttk.Button(self.cobranza_frame, text="Buscar", command=self.buscar_por_cedula)
-        buscar_cedula_button.place(relx=0.31, rely=0.018)
 
         # Campo para la búsqueda por cédula de representante
-        cedula_rep_label = ttk.Label(self.cobranza_frame, text="Cédula Representante:")
-        cedula_rep_label.place(relx=0.5, rely=0.02)
+        ttk.Label(self.cobranza_frame, text="Cédula Representante:").place(relx=0.5, rely=0.02)
         self.cedula_rep_entry = ttk.Entry(self.cobranza_frame)
         self.cedula_rep_entry.place(relx=0.65, rely=0.02, width=150)
-        self.cedula_rep_entry.bind("<Return>", lambda event: self.buscar_por_representante())
-        self.cedula_rep_entry.bind("<KP_Enter>", lambda event: self.buscar_por_representante())
-        buscar_cedula_rep_button = ttk.Button(self.cobranza_frame, text="Buscar", command=self.buscar_por_representante)
-        buscar_cedula_rep_button.place(relx=0.81, rely=0.018)
 
         # Lista desplegable con los cursos disponibles
-        curso_label = ttk.Label(self.cobranza_frame, text="Curso:")
-        curso_label.place(relx=0.02, rely=0.08)
+        ttk.Label(self.cobranza_frame, text="Curso:").place(relx=0.02, rely=0.08)
         cursos = self.data_manager.obtener_cursos()
         cursos.insert(0, "Todos")  # Agregar opción "Todos"
         self.curso_combobox = ttk.Combobox(self.cobranza_frame, values=cursos, state="readonly")
         self.curso_combobox.place(relx=0.15, rely=0.08, width=150)
         self.curso_combobox.set("Todos")
-        buscar_curso_button = ttk.Button(self.cobranza_frame, text="Buscar", command=self.buscar_por_curso)
-        buscar_curso_button.place(relx=0.31, rely=0.078)
 
         # Campo para la búsqueda por mes
-        mes_label = ttk.Label(self.cobranza_frame, text="Mes:")
-        mes_label.place(relx=0.5, rely=0.08)
+        ttk.Label(self.cobranza_frame, text="Mes:").place(relx=0.5, rely=0.08)
         meses = [
             "Todos", "Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio",
             "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"
@@ -287,26 +300,23 @@ class CobranzaApp:
         self.mes_combobox = ttk.Combobox(self.cobranza_frame, values=meses, state="readonly")
         self.mes_combobox.place(relx=0.65, rely=0.08, width=150)
         self.mes_combobox.set("Todos")
-        buscar_mes_button = ttk.Button(self.cobranza_frame, text="Buscar", command=self.buscar_por_mes)
-        buscar_mes_button.place(relx=0.81, rely=0.078)
 
         # Campos para el rango de fechas
-        fecha_inicio_label = ttk.Label(self.cobranza_frame, text="Fecha Inicio:")
-        fecha_inicio_label.place(relx=0.02, rely=0.14)
-        self.fecha_inicio_entry = DateEntry(self.cobranza_frame, date_pattern='yyyy-mm-dd', state='readonly')
+        ttk.Label(self.cobranza_frame, text="Fecha Inicio:").place(relx=0.02, rely=0.14)
+        self.fecha_inicio_entry = DateEntry(self.cobranza_frame, date_pattern='yyyy-mm-dd', state='readonly', locale='es_ES')
         self.fecha_inicio_entry.place(relx=0.15, rely=0.14, width=150)
 
-        fecha_fin_label = ttk.Label(self.cobranza_frame, text="Fecha Fin:")
-        fecha_fin_label.place(relx=0.5, rely=0.14)
-        self.fecha_fin_entry = DateEntry(self.cobranza_frame, date_pattern='yyyy-mm-dd', state='readonly')
+        ttk.Label(self.cobranza_frame, text="Fecha Fin:").place(relx=0.5, rely=0.14)
+        self.fecha_fin_entry = DateEntry(self.cobranza_frame, date_pattern='yyyy-mm-dd', state='readonly', locale='es_ES')
         self.fecha_fin_entry.place(relx=0.65, rely=0.14, width=150)
 
-        buscar_fecha_button = ttk.Button(self.cobranza_frame, text="Buscar", command=self.buscar_por_fecha)
-        buscar_fecha_button.place(relx=0.81, rely=0.138)
+        # Botón para buscar pagos
+        buscar_button = ttk.Button(self.cobranza_frame, text="Buscar Pagos", command=self.buscar_pagos)
+        buscar_button.place(relx=0.02, rely=0.20)
 
         # Botón para filtrar morosos
         morosos_button = ttk.Button(self.cobranza_frame, text="Filtrar Morosos", command=self.filtrar_morosos)
-        morosos_button.place(relx=0.02, rely=0.20)
+        morosos_button.place(relx=0.15, rely=0.20)
 
         # Botón para limpiar el Treeview
         limpiar_button = ttk.Button(self.cobranza_frame, text="Limpiar", command=self.limpiar_treeview)
@@ -317,7 +327,7 @@ class CobranzaApp:
         exportar_button.place(relx=0.92, rely=0.92)
 
         # Crear el Treeview para mostrar los pagos
-        columns = ('cedula_estudiante', 'nombre_alumno', 'curso', 'mes', 'monto', 'tipo_pago', 'fecha_pago')
+        columns = ('cedula_estudiante', 'nombre_alumno', 'curso', 'mes', 'monto', 'tipo_pago', 'cedula_representante')
         self.tree = ttk.Treeview(self.cobranza_frame, columns=columns, show='headings')
 
         # Definir encabezados con funcionalidad de ordenamiento
@@ -332,7 +342,7 @@ class CobranzaApp:
         self.tree.column('mes', width=80)
         self.tree.column('monto', width=100)
         self.tree.column('tipo_pago', width=120)
-        self.tree.column('fecha_pago', width=100)
+        self.tree.column('cedula_representante', width=120)
 
         self.tree.place(relx=0.02, rely=0.25, relwidth=0.96, relheight=0.65)
 
@@ -345,105 +355,76 @@ class CobranzaApp:
         """Valida que la cédula sea numérica."""
         return cedula.isdigit()
 
-    def buscar_por_cedula(self):
-        """Busca pagos por cédula de alumno."""
+    def buscar_pagos(self):
+        """Busca pagos según los filtros seleccionados."""
         cedula = self.cedula_entry.get().strip()
-        if not self.es_cedula_valida(cedula):
-            messagebox.showwarning("Entrada Inválida", "Por favor, ingrese una cédula válida.")
+        cedula_representante = self.cedula_rep_entry.get().strip()
+        curso = self.curso_combobox.get().strip()
+        mes = self.mes_combobox.get().strip()
+        fecha_inicio = self.fecha_inicio_entry.get_date()
+        fecha_fin = self.fecha_fin_entry.get_date()
+
+        # Validar cédulas
+        if cedula and not self.es_cedula_valida(cedula):
+            messagebox.showwarning("Entrada Inválida", "Por favor, ingrese una cédula de alumno válida.")
             return
 
-        try:
-            result = self.data_manager.obtener_pagos_por_cedula(cedula)
-            if result:
-                self.actualizar_treeview(result)
-            else:
-                messagebox.showinfo("Sin Resultados", "No se encontraron pagos para este alumno.")
-        except Exception:
-            messagebox.showerror("Error", "Ocurrió un error al consultar los pagos. Por favor, inténtelo más tarde.")
-
-    def buscar_por_representante(self):
-        """Busca pagos por cédula de representante."""
-        cedula_representante = self.cedula_rep_entry.get().strip()
-        if not self.es_cedula_valida(cedula_representante):
+        if cedula_representante and not self.es_cedula_valida(cedula_representante):
             messagebox.showwarning("Entrada Inválida", "Por favor, ingrese una cédula de representante válida.")
             return
-
-        try:
-            cedulas_alumnos = self.data_manager.obtener_alumnos_por_representante(cedula_representante)
-            if cedulas_alumnos:
-                result = self.data_manager.obtener_pagos_por_representante(cedulas_alumnos)
-                if result:
-                    self.actualizar_treeview(result)
-                else:
-                    messagebox.showinfo("Sin Resultados", "No se encontraron pagos para los alumnos asociados a este representante.")
-            else:
-                messagebox.showinfo("Sin Resultados", "No se encontraron alumnos asociados a este representante.")
-        except Exception:
-            messagebox.showerror("Error", "Ocurrió un error al consultar los pagos. Por favor, inténtelo más tarde.")
-
-    def buscar_por_curso(self):
-        """Busca pagos por curso."""
-        curso = self.curso_combobox.get().strip()
-        if not curso:
-            messagebox.showwarning("Entrada Inválida", "Por favor, seleccione un curso.")
-            return
-
-        try:
-            result = self.data_manager.obtener_pagos_por_curso(curso)
-            if result:
-                self.actualizar_treeview(result)
-            else:
-                messagebox.showinfo("Sin Resultados", "No se encontraron pagos para este curso.")
-        except Exception:
-            messagebox.showerror("Error", "Ocurrió un error al consultar los pagos. Por favor, inténtelo más tarde.")
-
-    def buscar_por_mes(self):
-        """Busca pagos por mes."""
-        mes = self.mes_combobox.get().strip()
-        if not mes:
-            messagebox.showwarning("Entrada Inválida", "Por favor, seleccione un mes.")
-            return
-
-        try:
-            result = self.data_manager.obtener_pagos_por_mes(mes)
-            if result:
-                self.actualizar_treeview(result)
-            else:
-                messagebox.showinfo("Sin Resultados", "No se encontraron pagos para este mes.")
-        except Exception:
-            messagebox.showerror("Error", "Ocurrió un error al consultar los pagos. Por favor, inténtelo más tarde.")
-
-    def buscar_por_fecha(self):
-        """Busca pagos por rango de fechas."""
-        fecha_inicio = self.fecha_inicio_entry.get_date()
-        fecha_fin = self.fecha_fin_entry.get_date()
-
-        if fecha_inicio > fecha_fin:
-            messagebox.showwarning("Entrada Inválida", "La fecha de inicio no puede ser posterior a la fecha fin.")
-            return
-
-        try:
-            result = self.data_manager.obtener_pagos_por_rango_fecha(fecha_inicio, fecha_fin)
-            if result:
-                self.actualizar_treeview(result)
-            else:
-                messagebox.showinfo("Sin Resultados", "No se encontraron pagos en este rango de fechas.")
-        except Exception:
-            messagebox.showerror("Error", "Ocurrió un error al consultar los pagos. Por favor, inténtelo más tarde.")
-
-    def filtrar_morosos(self):
-        """Filtra y muestra a los alumnos morosos según los filtros aplicados."""
-        curso = self.curso_combobox.get().strip()
-        mes = self.mes_combobox.get().strip()
-        fecha_inicio = self.fecha_inicio_entry.get_date()
-        fecha_fin = self.fecha_fin_entry.get_date()
 
         # Validar fechas
         if fecha_inicio > fecha_fin:
             messagebox.showwarning("Entrada Inválida", "La fecha de inicio no puede ser posterior a la fecha fin.")
             return
 
-        # Determinar los filtros aplicados
+        # Determinar filtros
+        filtro_curso = curso if curso != "Todos" else None
+        filtro_mes = mes if mes != "Todos" else None
+        filtro_fecha_inicio = fecha_inicio if fecha_inicio != fecha_fin else None
+        filtro_fecha_fin = fecha_fin if fecha_inicio != fecha_fin else None
+
+        try:
+            result = self.data_manager.obtener_pagos(
+                cedula=cedula if cedula else None,
+                cedula_representante=cedula_representante if cedula_representante else None,
+                curso=filtro_curso,
+                mes=filtro_mes,
+                fecha_inicio=filtro_fecha_inicio,
+                fecha_fin=filtro_fecha_fin
+            )
+            if result:
+                self.actualizar_treeview(result)
+            else:
+                messagebox.showinfo("Sin Resultados", "No se encontraron pagos con los filtros seleccionados.")
+        except Exception as e:
+            logging.error(f"Error al buscar pagos: {e}")
+            messagebox.showerror("Error", "Ocurrió un error al consultar los pagos. Por favor, inténtelo más tarde.")
+
+    def filtrar_morosos(self):
+        """Filtra y muestra a los alumnos morosos según los filtros aplicados."""
+        cedula = self.cedula_entry.get().strip()
+        cedula_representante = self.cedula_rep_entry.get().strip()
+        curso = self.curso_combobox.get().strip()
+        mes = self.mes_combobox.get().strip()
+        fecha_inicio = self.fecha_inicio_entry.get_date()
+        fecha_fin = self.fecha_fin_entry.get_date()
+
+        # Validar cédulas
+        if cedula and not self.es_cedula_valida(cedula):
+            messagebox.showwarning("Entrada Inválida", "Por favor, ingrese una cédula de alumno válida.")
+            return
+
+        if cedula_representante and not self.es_cedula_valida(cedula_representante):
+            messagebox.showwarning("Entrada Inválida", "Por favor, ingrese una cédula de representante válida.")
+            return
+
+        # Validar fechas
+        if fecha_inicio > fecha_fin:
+            messagebox.showwarning("Entrada Inválida", "La fecha de inicio no puede ser posterior a la fecha fin.")
+            return
+
+        # Determinar filtros
         filtro_curso = curso if curso != "Todos" else None
         filtro_mes = mes if mes != "Todos" else None
         filtro_fecha_inicio = fecha_inicio if fecha_inicio != fecha_fin else None
@@ -451,6 +432,8 @@ class CobranzaApp:
 
         try:
             morosos = self.data_manager.obtener_morosos(
+                cedula=cedula if cedula else None,
+                cedula_representante=cedula_representante if cedula_representante else None,
                 curso=filtro_curso,
                 mes=filtro_mes,
                 fecha_inicio=filtro_fecha_inicio,
@@ -464,9 +447,9 @@ class CobranzaApp:
 
                 # Insertar morosos en el Treeview
                 for alumno in morosos:
-                    cedula, nombre, curso = alumno
-                    self.tree.insert('', 'end', values=(cedula, nombre, curso, '', '', 'Moroso', ''), tags=('moroso',))
-                    self.tree_data.append((cedula, nombre, curso, '', '', 'Moroso', ''))
+                    cedula_alumno, nombre, curso_alumno, mes_pendiente, monto, tipo_pago, cedula_rep = alumno
+                    self.tree.insert('', 'end', values=(cedula_alumno, nombre, curso_alumno, mes_pendiente, monto, tipo_pago, cedula_rep), tags=('moroso',))
+                    self.tree_data.append((cedula_alumno, nombre, curso_alumno, mes_pendiente, monto, tipo_pago, cedula_rep))
 
                 # Cambiar el color del texto a rojo para morosos
                 self.tree.tag_configure('moroso', foreground='red')
@@ -485,14 +468,9 @@ class CobranzaApp:
         for record in self.tree.get_children():
             self.tree.delete(record)
 
-        # Insertar nuevos registros y cambiar color del texto para morosos
+        # Insertar nuevos registros
         for row in data:
-            tag = 'moroso' if row[5].lower() == 'moroso' else 'al_dia'
-            self.tree.insert('', 'end', values=row, tags=(tag,))
-
-        # Configurar el color del texto
-        self.tree.tag_configure('moroso', foreground='red')
-        self.tree.tag_configure('al_dia', foreground='black')
+            self.tree.insert('', 'end', values=row)
 
     def limpiar_treeview(self):
         """Limpia el Treeview y restablece los campos de entrada."""
@@ -555,12 +533,12 @@ class CobranzaApp:
                 normal_format = workbook.add_format()
 
                 # Escribir encabezados
-                headers = ['Cédula Estudiante', 'Nombre Alumno', 'Curso', 'Mes', 'Monto', 'Tipo de Pago', 'Fecha de Pago']
+                headers = ['Cédula Estudiante', 'Nombre Alumno', 'Curso', 'Mes', 'Monto', 'Tipo de Pago', 'Cédula Representante']
                 worksheet.write_row(0, 0, headers, header_format)
 
                 # Escribir datos
                 for row_num, row_data in enumerate(self.tree_data, start=1):
-                    format_to_apply = red_format if row_data[5].lower() == 'moroso' else normal_format
+                    format_to_apply = red_format if 'Moroso' in row_data else normal_format
                     worksheet.write_row(row_num, 0, row_data, format_to_apply)
 
                 # Ajustar ancho de columnas
